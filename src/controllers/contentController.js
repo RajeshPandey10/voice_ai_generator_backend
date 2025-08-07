@@ -8,6 +8,7 @@ export const generateContent = async (req, res) => {
     const { error } = contentGenerationSchema.validate(req.body);
     if (error) {
       return res.status(400).json({
+        success: false,
         error: error.details[0].message,
       });
     }
@@ -18,6 +19,7 @@ export const generateContent = async (req, res) => {
       business_type,
       products_services,
       target_customers,
+      preferredLanguage = "en", // Default to English
     } = req.body;
 
     const businessDetails = {
@@ -26,6 +28,7 @@ export const generateContent = async (req, res) => {
       businessType: business_type,
       productsServices: products_services || "",
       targetCustomers: target_customers || "",
+      preferredLanguage,
     };
 
     // Generate content using AI service
@@ -52,7 +55,9 @@ export const generateContent = async (req, res) => {
     }
 
     res.json({
-      result: aiResult.content,
+      success: true,
+      content: aiResult.content,
+      result: aiResult.content, // Keep both for backward compatibility
       id: contentRecord._id,
       tokensUsed: aiResult.tokensUsed,
       generationTime: aiResult.generationTime,
@@ -63,11 +68,13 @@ export const generateContent = async (req, res) => {
     // Return user-friendly error messages
     if (error.message.includes("AI service")) {
       return res.status(503).json({
+        success: false,
         error: error.message,
       });
     }
 
     res.status(500).json({
+      success: false,
       error: "Failed to generate content. Please try again.",
     });
   }

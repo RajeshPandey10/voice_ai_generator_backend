@@ -8,9 +8,15 @@ export const generateAudio = async (req, res) => {
     // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.log("Audio validation errors:", errors.array());
       return res.status(400).json({
+        success: false,
         error: "Validation error",
         details: errors.array(),
+        message: errors
+          .array()
+          .map((err) => err.msg)
+          .join(", "),
       });
     }
 
@@ -23,9 +29,39 @@ export const generateAudio = async (req, res) => {
     } = req.body;
     const userId = req.user?.id;
 
+    console.log("Audio generation request:", {
+      contentLength: content?.length,
+      language,
+      voice,
+      businessName,
+      contentType,
+      userId,
+      contentPreview: content?.substring(0, 100) + "...",
+    });
+
+    // Validate content exists and has meaningful text
+    if (!content || typeof content !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid content",
+        message: "Content must be a non-empty string",
+      });
+    }
+
+    const cleanedContent = content.trim();
+    if (cleanedContent.length < 5) {
+      return res.status(400).json({
+        success: false,
+        error: "Content too short",
+        message:
+          "Content must contain at least 5 characters of meaningful text",
+      });
+    }
+
     // Check if user can generate audio
     if (req.user && !req.user.canGenerateAudio()) {
       return res.status(403).json({
+        success: false,
         error: "Audio generation limit reached",
         message:
           "You have reached your monthly audio generation limit. Please upgrade your plan.",

@@ -3,6 +3,9 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import session from "express-session";
+import path from "path";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
 import connectDatabase from "./config/database.js";
 import passport from "./config/passport.js";
 import { generalLimiter } from "./middleware/rateLimiter.js";
@@ -15,6 +18,10 @@ import subscriptionRoutes from "./routes/subscription.js";
 import { generateContent } from "./controllers/contentController.js";
 import { optionalAuth, checkUsageLimit } from "./middleware/auth.js";
 import { contentGenerationLimiter } from "./middleware/rateLimiter.js";
+
+// ES module equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 
@@ -29,9 +36,33 @@ app.use(
 );
 
 // CORS configuration
+const allowedOrigins = [
+  process.env.FRONTEND_URL || "http://localhost:5173",
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+  "https://voice-ai-content-generator-frontend.vercel.app",
+].filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow any Vercel preview deployments
+      if (origin && origin.includes("vercel.app")) {
+        return callback(null, true);
+      }
+
+      const msg =
+        "The CORS policy for this site does not allow access from the specified Origin.";
+      return callback(new Error(msg), false);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -42,8 +73,38 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Serve static audio files
-app.use("/audio", express.static("uploads/audio"));
+// Serve static files from uploads/audio directory with proper headers
+app.use(
+  "/uploads/audio",
+  express.static(path.join(__dirname, "../uploads/audio"), {
+    setHeaders: (res, path, stat) => {
+      // Set proper CORS headers
+      res.set("Access-Control-Allow-Origin", "*");
+      res.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+      res.set(
+        "Access-Control-Allow-Headers",
+        "Range, Content-Range, Content-Length, Content-Type"
+      );
+
+      // Set proper content type based on file extension
+      if (path.endsWith(".mp3")) {
+        res.set("Content-Type", "audio/mpeg");
+      } else if (path.endsWith(".wav")) {
+        res.set("Content-Type", "audio/wav");
+      } else if (path.endsWith(".ogg")) {
+        res.set("Content-Type", "audio/ogg");
+      }
+
+      // Enable streaming and download
+      res.set("Accept-Ranges", "bytes");
+      res.set(
+        "Content-Disposition",
+        `inline; filename="${path.split("/").pop()}"`
+      );
+      res.set("Cache-Control", "public, max-age=3600"); // Cache for 1 hour
+    },
+  })
+);
 
 // Session configuration (for OAuth)
 app.use(

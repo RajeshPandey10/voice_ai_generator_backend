@@ -16,12 +16,23 @@ const audioValidation = [
   body("content")
     .notEmpty()
     .withMessage("Content is required")
-    .isLength({ min: 10, max: 5000 })
-    .withMessage("Content must be between 10 and 5000 characters"),
+    .isLength({ min: 1, max: 10000 })
+    .withMessage("Content must be between 1 and 10,000 characters")
+    .custom((value) => {
+      // Clean the content and check if it has meaningful text
+      const cleaned = value.trim().replace(/\s+/g, " ");
+      if (cleaned.length < 5) {
+        throw new Error(
+          "Content must contain at least 5 meaningful characters"
+        );
+      }
+      return true;
+    }),
   body("language")
     .optional()
     .isIn(["en", "ne"])
-    .withMessage("Language must be 'en' (English) or 'ne' (Nepali)"),
+    .withMessage("Language must be 'en' (English) or 'ne' (Nepali)")
+    .default("en"),
   body("voice").optional().isString().withMessage("Voice must be a string"),
   body("businessName")
     .optional()

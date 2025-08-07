@@ -18,6 +18,7 @@ export const contentGenerationSchema = Joi.object({
   custom_business_type: Joi.string().min(1).max(100).optional().allow(""),
   products_services: Joi.string().max(500).optional().allow(""),
   target_customers: Joi.string().max(500).optional().allow(""),
+  preferredLanguage: Joi.string().valid("en", "ne").optional().default("en"),
 });
 
 export const updateProfileSchema = Joi.object({
