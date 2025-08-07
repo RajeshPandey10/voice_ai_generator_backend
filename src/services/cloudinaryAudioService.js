@@ -98,64 +98,58 @@ class AudioService {
       );
 
       try {
-        // Primary method: Google TTS
-        await this.generateGoogleTTS(cleanText, tempFilePath, voice, speed);
+        // Primary method: Web-based Google TTS (most reliable for cloud)
+        await this.generateWebGoogleTTS(cleanText, tempFilePath, voice, speed);
         audioGenerated = true;
-        generationMethod = "google_tts_primary";
+        generationMethod = "web_google_tts_primary";
         console.log(
-          "✅ Audio generated successfully using Google TTS (Primary)."
+          "✅ Audio generated successfully using Web Google TTS (Primary)."
         );
       } catch (primaryError) {
-        console.log("Primary Google TTS failed, trying enhanced fallbacks...");
+        console.log("Primary Web Google TTS failed, trying node-gtts...");
 
         try {
-          // Enhanced fallback methods
-          await this.generateFallbackAudio(
-            cleanText,
-            tempFilePath,
-            voice,
-            speed
-          );
+          // Fallback method: node-gtts
+          await this.generateGoogleTTS(cleanText, tempFilePath, voice, speed);
           audioGenerated = true;
-          generationMethod = "enhanced_fallback";
-          console.log("✅ Audio generated using enhanced fallback methods.");
+          generationMethod = "node_gtts_fallback";
+          console.log("✅ Audio generated using node-gtts fallback.");
         } catch (fallbackError) {
-          console.log("Enhanced fallbacks failed, trying web TTS...");
+          console.log("node-gtts failed, trying Edge TTS...");
 
           try {
-            // Web TTS with multiple APIs
-            await this.generateEnhancedWebTTS(
+            // Try Edge TTS API
+            await this.generateEdgeTTSAPI(
               cleanText,
               tempFilePath,
               voice,
               speed
             );
             audioGenerated = true;
-            generationMethod = "enhanced_web_tts";
-            console.log("✅ Audio generated using enhanced web TTS.");
-          } catch (webError) {
-            console.log(
-              "All TTS methods failed, creating advanced placeholder..."
-            );
+            generationMethod = "edge_tts_api";
+            console.log("✅ Audio generated using Edge TTS API.");
+          } catch (edgeError) {
+            console.log("Edge TTS failed, trying speech synthesis API...");
 
             try {
-              // Advanced placeholder as absolute final fallback
-              await this.createAdvancedPlaceholder(cleanText, tempFilePath);
+              // Try browser-compatible speech synthesis
+              await this.generateSpeechSynthesisAPI(
+                cleanText,
+                tempFilePath,
+                voice,
+                speed
+              );
               audioGenerated = true;
-              generationMethod = "advanced_placeholder";
-              console.log("✅ Created advanced audio placeholder.");
-            } catch (placeholderError) {
-              console.error(
-                "Even advanced placeholder failed:",
-                placeholderError.message
+              generationMethod = "speech_synthesis_api";
+              console.log("✅ Audio generated using Speech Synthesis API.");
+            } catch (speechError) {
+              console.log(
+                "All real TTS methods failed, this should not happen in production!"
               );
 
-              // Create basic silent file as last resort
-              await this.createPlaceholderAudio(cleanText, tempFilePath);
-              audioGenerated = true;
-              generationMethod = "basic_placeholder";
-              console.log(
-                "⚠️ Created basic silent placeholder as last resort."
+              // Only fall back to placeholder if absolutely necessary
+              throw new Error(
+                "All TTS methods failed - real speech generation not available"
               );
             }
           }
@@ -735,45 +729,302 @@ class AudioService {
     }
   }
 
-  // Web-based Google TTS using direct API
-  async generateWebGoogleTTS(text, outputPath, lang, slow) {
+  // Web-based Google TTS using direct API - MOST RELIABLE FOR CLOUD
+  async generateWebGoogleTTS(text, outputPath, voice, speed) {
     try {
-      // Use Google Translate TTS API (unofficial but widely used)
+      // Clean and validate text first
+      const cleanText = text.trim();
+      if (!cleanText || cleanText.length < 3) {
+        throw new Error("Text too short for TTS generation");
+      }
+
+      // Language mapping for Google TTS
+      const gTTSLangs = {
+        en_us_001: "en",
+        en_us_002: "en",
+        en_uk_001: "en",
+        en_uk_003: "en",
+        en_au_001: "en",
+        en_au_002: "en",
+        ne_np_001: "hi", // Hindi as fallback for Nepali
+        ne_np_002: "hi",
+      };
+
+      const lang = gTTSLangs[voice] || "en";
+      const slow = speed < 0.8;
+
+      console.log(
+        `🌐 Generating Web Google TTS: "${cleanText.substring(
+          0,
+          50
+        )}..." (lang: ${lang}, slow: ${slow})`
+      );
+
+      // Use Google Translate TTS API (unofficial but widely used and reliable)
       const fetch = (await import("node-fetch")).default;
 
-      const speed = slow ? 0.24 : 1;
-      const textEncoded = encodeURIComponent(text);
+      const ttsSpeed = slow ? 0.24 : 1;
+      const textEncoded = encodeURIComponent(cleanText);
 
-      // Google Translate TTS endpoint
-      const ttsUrl = `http://translate.google.com/translate_tts?ie=UTF-8&total=1&idx=0&textlen=${text.length}&client=tw-ob&q=${textEncoded}&tl=${lang}&ttsspeed=${speed}`;
+      // Multiple Google TTS endpoints for reliability
+      const endpoints = [
+        `https://translate.google.com/translate_tts?ie=UTF-8&total=1&idx=0&textlen=${cleanText.length}&client=tw-ob&q=${textEncoded}&tl=${lang}&ttsspeed=${ttsSpeed}`,
+        `http://translate.google.com/translate_tts?ie=UTF-8&total=1&idx=0&textlen=${cleanText.length}&client=tw-ob&q=${textEncoded}&tl=${lang}&ttsspeed=${ttsSpeed}`,
+        `https://translate.googleapis.com/translate_tts?ie=UTF-8&q=${textEncoded}&tl=${lang}&total=1&idx=0&textlen=${cleanText.length}&client=gtx`,
+      ];
 
-      console.log(`🌐 Fetching from Google TTS API: ${lang}`);
+      let audioBuffer = null;
+      let lastError = null;
 
-      const response = await fetch(ttsUrl, {
+      for (const endpoint of endpoints) {
+        try {
+          console.log(`🔄 Trying endpoint: ${endpoint.split("?")[0]}...`);
+
+          const response = await fetch(endpoint, {
+            headers: {
+              "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+              Accept: "audio/mpeg, audio/*, */*",
+              "Accept-Language": "en-US,en;q=0.9",
+              Referer: "https://translate.google.com/",
+            },
+            timeout: 30000, // 30 second timeout
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          audioBuffer = await response.buffer();
+
+          if (audioBuffer.length < 1000) {
+            throw new Error("Audio response too small, likely an error");
+          }
+
+          console.log(
+            `✅ Successfully fetched audio: ${audioBuffer.length} bytes`
+          );
+          break; // Success, exit loop
+        } catch (error) {
+          console.log(`❌ Endpoint failed: ${error.message}`);
+          lastError = error;
+          continue; // Try next endpoint
+        }
+      }
+
+      if (!audioBuffer) {
+        throw new Error(
+          `All Google TTS endpoints failed. Last error: ${lastError?.message}`
+        );
+      }
+
+      await fs.writeFile(outputPath, audioBuffer);
+      console.log(
+        `✅ Web Google TTS saved: ${audioBuffer.length} bytes to ${outputPath}`
+      );
+    } catch (error) {
+      console.error("Web Google TTS failed:", error);
+      throw error;
+    }
+  }
+
+  // Edge TTS API - Free Microsoft TTS service
+  async generateEdgeTTSAPI(text, outputPath, voice, speed) {
+    try {
+      const fetch = (await import("node-fetch")).default;
+
+      // Voice mapping for Edge TTS
+      const edgeVoices = {
+        en_us_001:
+          "Microsoft Server Speech Text to Speech Voice (en-US, AriaNeural)",
+        en_us_002:
+          "Microsoft Server Speech Text to Speech Voice (en-US, GuyNeural)",
+        en_uk_001:
+          "Microsoft Server Speech Text to Speech Voice (en-GB, SoniaNeural)",
+        en_uk_003:
+          "Microsoft Server Speech Text to Speech Voice (en-GB, RyanNeural)",
+        en_au_001:
+          "Microsoft Server Speech Text to Speech Voice (en-AU, NatashaNeural)",
+        en_au_002:
+          "Microsoft Server Speech Text to Speech Voice (en-AU, WilliamNeural)",
+        ne_np_001:
+          "Microsoft Server Speech Text to Speech Voice (hi-IN, SwaraNeural)",
+        ne_np_002:
+          "Microsoft Server Speech Text to Speech Voice (hi-IN, MadhurNeural)",
+      };
+
+      const selectedVoice = edgeVoices[voice] || edgeVoices.en_us_001;
+      const rate = speed < 0.8 ? "-20%" : speed > 1.2 ? "+20%" : "+0%";
+
+      console.log(
+        `🎤 Generating Edge TTS: "${text.substring(
+          0,
+          50
+        )}..." (voice: ${selectedVoice})`
+      );
+
+      // Create SSML for Edge TTS
+      const ssml = `
+        <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
+          <voice name="${selectedVoice}">
+            <prosody rate="${rate}" pitch="medium">
+              ${text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")}
+            </prosody>
+          </voice>
+        </speak>
+      `;
+
+      // Try Microsoft Speech Platform API
+      const endpoint = "https://speech.platform.bing.com/synthesize";
+
+      const response = await fetch(endpoint, {
+        method: "POST",
         headers: {
+          "Content-Type": "application/ssml+xml",
+          "X-Microsoft-OutputFormat": "audio-16khz-128kbitrate-mono-mp3",
           "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         },
+        body: ssml,
+        timeout: 30000,
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        throw new Error(
+          `Edge TTS API failed: ${response.status} ${response.statusText}`
+        );
       }
 
       const audioBuffer = await response.buffer();
 
       if (audioBuffer.length < 1000) {
-        // Too small, likely an error
-        throw new Error("Audio response too small, likely an error");
+        throw new Error("Edge TTS returned empty audio");
       }
 
       await fs.writeFile(outputPath, audioBuffer);
-      console.log(`✅ Web Google TTS saved: ${audioBuffer.length} bytes`);
+      console.log(`✅ Edge TTS API saved: ${audioBuffer.length} bytes`);
     } catch (error) {
-      console.error("Web Google TTS failed:", error);
+      console.error("Edge TTS API failed:", error);
       throw error;
     }
-  } // Estimate audio duration based on text length
+  }
+
+  // Speech Synthesis API - Browser-compatible TTS (works in Node.js with polyfills)
+  async generateSpeechSynthesisAPI(text, outputPath, voice, speed) {
+    try {
+      console.log(
+        `🗣️ Generating Speech Synthesis API: "${text.substring(0, 50)}..."`
+      );
+
+      // Use a cloud-based TTS service (free tier)
+      const fetch = (await import("node-fetch")).default;
+
+      // Try VoiceRSS API (free tier available)
+      const voiceRSSAPI = await this.generateVoiceRSSAPI(
+        text,
+        outputPath,
+        voice,
+        speed
+      );
+      if (voiceRSSAPI) {
+        return;
+      }
+
+      // Try ResponsiveVoice API (free tier)
+      const responsiveVoiceAPI = await this.generateResponsiveVoiceAPI(
+        text,
+        outputPath,
+        voice,
+        speed
+      );
+      if (responsiveVoiceAPI) {
+        return;
+      }
+
+      throw new Error("No Speech Synthesis API available");
+    } catch (error) {
+      console.error("Speech Synthesis API failed:", error);
+      throw error;
+    }
+  }
+
+  // VoiceRSS API - Free TTS service
+  async generateVoiceRSSAPI(text, outputPath, voice, speed) {
+    try {
+      const fetch = (await import("node-fetch")).default;
+
+      // Voice mapping for VoiceRSS
+      const voiceMap = {
+        en_us_001: "en-us",
+        en_us_002: "en-us",
+        en_uk_001: "en-gb",
+        en_uk_003: "en-gb",
+        en_au_001: "en-au",
+        en_au_002: "en-au",
+        ne_np_001: "hi-in",
+        ne_np_002: "hi-in",
+      };
+
+      const lang = voiceMap[voice] || "en-us";
+      const rate = Math.floor(speed * 100) / 100; // Normalize speed
+
+      console.log(`🔊 Trying VoiceRSS API: ${lang}`);
+
+      // Note: In production, you would need a VoiceRSS API key
+      // For now, we'll use the demo endpoint with limitations
+      const endpoint = "http://api.voicerss.org/";
+      const params = new URLSearchParams({
+        key: "demo", // Replace with actual API key in production
+        hl: lang,
+        src: text,
+        r: rate,
+        c: "mp3",
+        f: "44khz_16bit_stereo",
+      });
+
+      const response = await fetch(`${endpoint}?${params}`, {
+        timeout: 30000,
+      });
+
+      if (!response.ok) {
+        throw new Error(`VoiceRSS API failed: ${response.status}`);
+      }
+
+      const audioBuffer = await response.buffer();
+
+      if (audioBuffer.length < 1000) {
+        throw new Error("VoiceRSS returned empty audio");
+      }
+
+      await fs.writeFile(outputPath, audioBuffer);
+      console.log(`✅ VoiceRSS API saved: ${audioBuffer.length} bytes`);
+      return true;
+    } catch (error) {
+      console.log("VoiceRSS API failed:", error.message);
+      return false;
+    }
+  }
+
+  // ResponsiveVoice API fallback
+  async generateResponsiveVoiceAPI(text, outputPath, voice, speed) {
+    try {
+      console.log(`🎵 Trying ResponsiveVoice API fallback...`);
+
+      // ResponsiveVoice has limited free tier, so we'll use it as last resort
+      // This would require implementing their API
+
+      // For now, return false to indicate unavailable
+      return false;
+    } catch (error) {
+      console.log("ResponsiveVoice API failed:", error.message);
+      return false;
+    }
+  }
+
+  // Estimate audio duration based on text length
   estimateAudioDuration(text) {
     const wordsPerMinute = 180;
     const avgCharsPerWord = 5;
