@@ -191,9 +191,6 @@ app.use("*", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-// Initialize keep-alive service
-const keepAliveService = new KeepAliveService();
-
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(
@@ -212,5 +209,5 @@ app.listen(PORT, () => {
   }
 
   // Start keep-alive service to prevent Render from sleeping
-  keepAliveService.start();
+  KeepAliveService.start();
 });
