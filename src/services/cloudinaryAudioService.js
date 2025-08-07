@@ -647,9 +647,15 @@ class AudioService {
     }
   }
 
-  // Generate TTS using Google TTS (gTTS)
+  // Generate TTS using Google TTS (gTTS) with enhanced error handling
   async generateGoogleTTS(text, outputPath, voice, speed) {
     try {
+      // Clean and validate text first
+      const cleanText = text.trim();
+      if (!cleanText || cleanText.length < 3) {
+        throw new Error("Text too short for TTS generation");
+      }
+
       // Language mapping for gTTS
       const gTTSLangs = {
         en_us_001: "en",
@@ -666,62 +672,108 @@ class AudioService {
       const slow = speed < 0.8;
 
       console.log(
-        `🎤 Generating TTS audio: "${text.substring(
+        `🎤 Generating TTS audio: "${cleanText.substring(
           0,
           50
-        )}..." (${lang}, slow: ${slow})`
+        )}..." (lang: ${lang}, slow: ${slow})`
       );
 
-      // Use node-gtts library with proper instantiation
-      const gtts = new gTTS(text, lang, slow);
+      // Try multiple TTS approaches
+      let success = false;
 
-      // Save the audio file
-      await new Promise((resolve, reject) => {
-        gtts.save(outputPath, (err) => {
-          if (err) {
-            console.error("gTTS error:", err);
-            reject(err);
-          } else {
-            console.log(`✅ TTS audio saved to: ${outputPath}`);
-            resolve();
-          }
-        });
-      });
-    } catch (gTTSError) {
-      console.error("gTTS generation failed:", gTTSError);
-
-      // Fallback: Try using command line gTTS if available
+      // Method 1: Try node-gtts with proper error handling
       try {
-        const gTTSLangs = {
-          en_us_001: "en",
-          en_us_002: "en",
-          en_uk_001: "en",
-          en_uk_003: "en",
-          en_au_001: "en",
-          en_au_002: "en",
-          ne_np_001: "hi", // Hindi as fallback for Nepali
-          ne_np_002: "hi",
-        };
+        console.log("🔄 Trying node-gtts method...");
+        const gtts = new gTTS(cleanText, lang, slow);
 
-        const lang = gTTSLangs[voice] || "en";
-        const speedParam = speed < 0.8 ? " --slow" : "";
-
-        await execAsync(
-          `gtts-cli --text "${text.replace(
-            /"/g,
-            '\\"'
-          )}" --lang ${lang}${speedParam} --output "${outputPath}" 2>/dev/null`
-        );
-
-        console.log("✅ TTS audio generated using gtts-cli");
-      } catch (cmdError) {
-        console.error("Command line gTTS also failed:", cmdError);
-        throw new Error("All gTTS methods failed");
+        await new Promise((resolve, reject) => {
+          gtts.save(outputPath, (err) => {
+            if (err) {
+              console.error("gTTS save error:", err);
+              reject(new Error(`node-gtts failed: ${err.message || err}`));
+            } else {
+              console.log(`✅ node-gtts success: ${outputPath}`);
+              resolve();
+            }
+          });
+        });
+        success = true;
+      } catch (nodeGTTSError) {
+        console.log("❌ node-gtts failed:", nodeGTTSError.message);
       }
+
+      // Method 2: Try web-based Google TTS API
+      if (!success) {
+        try {
+          console.log("🔄 Trying web-based Google TTS...");
+          await this.generateWebGoogleTTS(cleanText, outputPath, lang, slow);
+          success = true;
+          console.log("✅ Web Google TTS success");
+        } catch (webError) {
+          console.log("❌ Web Google TTS failed:", webError.message);
+        }
+      }
+
+      // Method 3: Try system TTS as backup
+      if (!success) {
+        try {
+          console.log("🔄 Trying system TTS as backup...");
+          await this.generateSystemTTS(cleanText, outputPath, voice, speed);
+          success = true;
+          console.log("✅ System TTS success");
+        } catch (systemError) {
+          console.log("❌ System TTS failed:", systemError.message);
+        }
+      }
+
+      if (!success) {
+        throw new Error("All Google TTS methods failed");
+      }
+    } catch (gTTSError) {
+      console.error("Google TTS generation failed:", gTTSError);
+      throw gTTSError;
     }
   }
 
-  // Estimate audio duration based on text length
+  // Web-based Google TTS using direct API
+  async generateWebGoogleTTS(text, outputPath, lang, slow) {
+    try {
+      // Use Google Translate TTS API (unofficial but widely used)
+      const fetch = (await import("node-fetch")).default;
+
+      const speed = slow ? 0.24 : 1;
+      const textEncoded = encodeURIComponent(text);
+
+      // Google Translate TTS endpoint
+      const ttsUrl = `http://translate.google.com/translate_tts?ie=UTF-8&total=1&idx=0&textlen=${text.length}&client=tw-ob&q=${textEncoded}&tl=${lang}&ttsspeed=${speed}`;
+
+      console.log(`🌐 Fetching from Google TTS API: ${lang}`);
+
+      const response = await fetch(ttsUrl, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const audioBuffer = await response.buffer();
+
+      if (audioBuffer.length < 1000) {
+        // Too small, likely an error
+        throw new Error("Audio response too small, likely an error");
+      }
+
+      await fs.writeFile(outputPath, audioBuffer);
+      console.log(`✅ Web Google TTS saved: ${audioBuffer.length} bytes`);
+    } catch (error) {
+      console.error("Web Google TTS failed:", error);
+      throw error;
+    }
+  } // Estimate audio duration based on text length
   estimateAudioDuration(text) {
     const wordsPerMinute = 180;
     const avgCharsPerWord = 5;
