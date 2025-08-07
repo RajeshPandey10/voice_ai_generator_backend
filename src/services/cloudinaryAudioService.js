@@ -91,29 +91,48 @@ class AudioService {
       let generationMethod = "placeholder";
 
       try {
-        await this.generateWebTTS(cleanText, tempFilePath, voice, speed);
-        audioGenerated = true;
-        generationMethod = "web_tts";
-        console.log("✅ Generated audio using web-based TTS");
-      } catch (webError) {
+        // Try pre-recorded audio first
+        const preRecordedSuccess = await this.generateFromPreRecorded(
+          tempFilePath
+        );
+        if (preRecordedSuccess) {
+          audioGenerated = true;
+          generationMethod = "pre-recorded";
+          console.log("✅ Generated audio using pre-recorded narrator");
+        } else {
+          throw new Error("Pre-recorded audio failed");
+        }
+      } catch (preRecordedError) {
         console.log(
-          "Web-based TTS failed, trying system TTS:",
-          webError.message
+          "Pre-recorded audio failed, trying web TTS:",
+          preRecordedError.message
         );
 
         try {
-          await this.generateSystemTTS(cleanText, tempFilePath, voice, speed);
+          await this.generateWebTTS(cleanText, tempFilePath, voice, speed);
           audioGenerated = true;
-          generationMethod = "system_tts";
-          console.log("✅ Generated audio using system TTS");
-        } catch (systemError) {
+          generationMethod = "web_tts";
+          console.log("✅ Generated audio using web-based TTS");
+        } catch (webError) {
           console.log(
-            "System TTS failed, using placeholder:",
-            systemError.message
+            "Web-based TTS failed, trying system TTS:",
+            webError.message
           );
-          // Fallback to placeholder audio with proper duration
-          await this.createPlaceholderAudio(cleanText, tempFilePath);
-          audioGenerated = true; // Still true, but it's silent
+
+          try {
+            await this.generateSystemTTS(cleanText, tempFilePath, voice, speed);
+            audioGenerated = true;
+            generationMethod = "system_tts";
+            console.log("✅ Generated audio using system TTS");
+          } catch (systemError) {
+            console.log(
+              "System TTS failed, using placeholder:",
+              systemError.message
+            );
+            // Fallback to placeholder audio with proper duration
+            await this.createPlaceholderAudio(cleanText, tempFilePath);
+            audioGenerated = true; // Still true, but it's silent
+          }
         }
       }
 
@@ -769,7 +788,7 @@ class AudioService {
         business: "en_us_002", // Professional male voice
         social: "en_uk_001", // Engaging UK female voice
         educational: "en_au_001", // Clear Australian voice
-        entertainment: "en_uk_003", // Dynamic UK male voice
+        entertainment: "en_uk_003", // Nepali female for entertainment
       },
       ne: {
         story: "ne_np_001", // Nepali female for stories
@@ -785,6 +804,34 @@ class AudioService {
       recommendations[language]?.story ||
       "en_us_001"
     );
+  }
+
+  // Generate audio from pre-recorded narrator files
+  async generateFromPreRecorded(outputPath) {
+    try {
+      const narratorDir = path.join(__dirname, "narrator-audio");
+      const files = await fs.readdir(narratorDir);
+      const audioFiles = files.filter(
+        (file) => path.extname(file).toLowerCase() === ".mp3"
+      );
+
+      if (audioFiles.length === 0) {
+        throw new Error("No pre-recorded narrator audio files found.");
+      }
+
+      // Pick a random narrator file
+      const randomAudioFile =
+        audioFiles[Math.floor(Math.random() * audioFiles.length)];
+      const sourcePath = path.join(narratorDir, randomAudioFile);
+
+      // Copy the selected file to the output path for processing
+      await fs.copyFile(sourcePath, outputPath);
+      console.log(`✅ Selected pre-recorded narrator: ${randomAudioFile}`);
+      return true;
+    } catch (error) {
+      console.log("Pre-recorded audio generation failed:", error.message);
+      return false;
+    }
   }
 }
 
