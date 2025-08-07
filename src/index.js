@@ -17,7 +17,7 @@ import { optionalAuth, checkUsageLimit } from "./middleware/auth.js";
 import { contentGenerationLimiter } from "./middleware/rateLimiter.js";
 
 const app = express();
-dotenv.config({});
+
 // Connect to database
 connectDatabase();
 
