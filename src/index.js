@@ -9,6 +9,7 @@ import { dirname } from "path";
 import connectDatabase from "./config/database.js";
 import passport from "./config/passport.js";
 import { generalLimiter } from "./middleware/rateLimiter.js";
+import KeepAliveService from "./services/keepAliveService.js";
 
 // Import routes
 import authRoutes from "./routes/auth.js";
@@ -190,6 +191,9 @@ app.use("*", (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
+// Initialize keep-alive service
+const keepAliveService = new KeepAliveService();
+
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(
@@ -206,4 +210,7 @@ app.listen(PORT, () => {
   if (!process.env.MONGODB_URI) {
     console.warn("⚠️  Warning: MONGODB_URI not found in environment variables");
   }
+
+  // Start keep-alive service to prevent Render from sleeping
+  keepAliveService.start();
 });
