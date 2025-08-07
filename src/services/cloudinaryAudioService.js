@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { cloudinary } from "../config/cloudinary.js";
+import gTTS from "node-gtts";
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -356,44 +357,252 @@ class AudioService {
   // Generate TTS using web-based API or edge TTS
   async generateWebTTS(text, outputPath, voice, speed) {
     try {
-      // You can integrate with services like:
-      // - Eleven Labs API
-      // - Google Cloud TTS API
-      // - Amazon Polly
-      // - Azure Cognitive Services
-
-      // For now, throw error to fallback to placeholder
-      throw new Error("Web TTS not configured");
-
-      /* Example implementation for Eleven Labs:
-      const response = await fetch('https://api.elevenlabs.io/v1/text-to-speech/VOICE_ID', {
-        method: 'POST',
-        headers: {
-          'Accept': 'audio/mpeg',
-          'Content-Type': 'application/json',
-          'xi-api-key': process.env.ELEVEN_LABS_API_KEY
-        },
-        body: JSON.stringify({
-          text: text,
-          model_id: "eleven_monolingual_v1",
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.5,
-            speed: speed
-          }
-        })
-      });
-      
-      if (response.ok) {
-        const audioBuffer = await response.buffer();
-        await fs.writeFile(outputPath, audioBuffer);
-        console.log("✅ Generated TTS audio using Eleven Labs");
+      // Try using Microsoft Edge TTS first (highest quality, free)
+      const edgeSuccess = await this.generateEdgeTTS(
+        text,
+        outputPath,
+        voice,
+        speed
+      );
+      if (edgeSuccess) {
+        console.log("✅ Generated TTS audio using Microsoft Edge TTS");
         return;
       }
-      */
+
+      // Try using gTTS as primary fallback (reliable, free)
+      try {
+        await this.generateGoogleTTS(text, outputPath, voice, speed);
+        console.log("✅ Generated TTS audio using Google TTS");
+        return;
+      } catch (gTTSError) {
+        console.log("gTTS failed, trying alternative methods...");
+      }
+
+      // Try using system TTS as final fallback
+      await this.generateSystemTTS(text, outputPath, voice, speed);
+      console.log("✅ Generated TTS audio using system TTS");
     } catch (error) {
-      console.error("Web TTS failed:", error);
+      console.error("All TTS methods failed:", error);
       throw error;
+    }
+  }
+
+  // Generate TTS using system commands (espeak, festival, say)
+  async generateSystemTTS(text, outputPath, voice, speed) {
+    try {
+      // Try macOS say command first (best quality on macOS)
+      if (process.platform === "darwin") {
+        const voices = {
+          en_us_001: "Samantha",
+          en_us_002: "Alex",
+          en_uk_001: "Kate",
+          en_uk_003: "Daniel",
+          en_au_001: "Karen",
+          en_au_002: "Lee",
+        };
+
+        const sayVoice = voices[voice] || "Samantha";
+        const rate = Math.floor(speed * 200);
+
+        try {
+          await execAsync(
+            `say -v "${sayVoice}" -r ${rate} -o "${outputPath.replace(
+              ".mp3",
+              ".aiff"
+            )}" "${text.replace(/"/g, '\\"')}"`
+          );
+
+          // Convert to MP3 if possible
+          try {
+            await execAsync(
+              `ffmpeg -i "${outputPath.replace(
+                ".mp3",
+                ".aiff"
+              )}" -acodec mp3 "${outputPath}" 2>/dev/null && rm "${outputPath.replace(
+                ".mp3",
+                ".aiff"
+              )}"`
+            );
+          } catch {
+            await execAsync(
+              `mv "${outputPath.replace(".mp3", ".aiff")}" "${outputPath}"`
+            );
+          }
+
+          console.log(`✅ Generated TTS using macOS say (${sayVoice})`);
+          return;
+        } catch (sayError) {
+          console.log("macOS say failed:", sayError.message);
+        }
+      }
+
+      // Try espeak (available on most Linux systems)
+      try {
+        const voiceMap = {
+          en_us_001: "en-us+f3",
+          en_us_002: "en-us+m3",
+          en_uk_001: "en+f3",
+          en_uk_003: "en+m3",
+          ne_np_001: "hi+f3",
+          ne_np_002: "hi+m3",
+        };
+
+        const espeakVoice = voiceMap[voice] || "en+f3";
+        const speedParam = Math.floor(speed * 175);
+
+        await execAsync(
+          `espeak -v "${espeakVoice}" -s ${speedParam} -w "${outputPath}" "${text.replace(
+            /"/g,
+            '\\"'
+          )}" 2>/dev/null`
+        );
+
+        console.log(`✅ Generated TTS using espeak (${espeakVoice})`);
+        return;
+      } catch (espeakError) {
+        console.log("espeak failed:", espeakError.message);
+      }
+
+      throw new Error("No system TTS available");
+    } catch (error) {
+      console.error("System TTS failed:", error);
+      throw error;
+    }
+  }
+
+  // Generate TTS using Microsoft Edge (free, high quality)
+  async generateEdgeTTS(text, outputPath, voice, speed) {
+    try {
+      // Voice mapping for Edge TTS
+      const edgeVoices = {
+        en_us_001: "en-US-AriaNeural", // Female, natural
+        en_us_002: "en-US-GuyNeural", // Male, professional
+        en_uk_001: "en-GB-SoniaNeural", // UK Female, warm
+        en_uk_003: "en-GB-RyanNeural", // UK Male, storytelling
+        en_au_001: "en-AU-NatashaNeural", // Australian Female
+        en_au_002: "en-AU-WilliamNeural", // Australian Male
+        ne_np_001: "hi-IN-SwaraNeural", // Hindi Female (closest to Nepali)
+        ne_np_002: "hi-IN-MadhurNeural", // Hindi Male (closest to Nepali)
+      };
+
+      const edgeVoice = edgeVoices[voice] || "en-US-AriaNeural";
+      const rate = speed < 0.8 ? "slow" : speed > 1.2 ? "fast" : "medium";
+
+      // Create SSML for better speech synthesis
+      const ssml = `
+        <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
+          <voice name="${edgeVoice}">
+            <prosody rate="${rate}" pitch="medium">
+              ${text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")}
+            </prosody>
+          </voice>
+        </speak>
+      `;
+
+      // Try using edge-tts if available
+      const tempSSMLFile = outputPath.replace(".mp3", ".ssml");
+      await fs.writeFile(tempSSMLFile, ssml);
+
+      try {
+        await execAsync(
+          `edge-tts --voice "${edgeVoice}" --file "${tempSSMLFile}" --write-media "${outputPath}" 2>/dev/null`
+        );
+
+        // Clean up SSML file
+        try {
+          await fs.unlink(tempSSMLFile);
+        } catch {}
+
+        return true;
+      } catch (edgeError) {
+        // Clean up SSML file
+        try {
+          await fs.unlink(tempSSMLFile);
+        } catch {}
+
+        // Try alternative approach with direct text
+        try {
+          await execAsync(
+            `edge-tts --voice "${edgeVoice}" --text "${text.replace(
+              /"/g,
+              '\\"'
+            )}" --write-media "${outputPath}" 2>/dev/null`
+          );
+          return true;
+        } catch (directError) {
+          console.log("Edge TTS not available:", directError.message);
+          return false;
+        }
+      }
+    } catch (error) {
+      console.log("Edge TTS failed:", error.message);
+      return false;
+    }
+  }
+
+  // Generate TTS using Google TTS (gTTS)
+  async generateGoogleTTS(text, outputPath, voice, speed) {
+    try {
+      // Language mapping for gTTS
+      const gTTSLangs = {
+        en_us_001: "en",
+        en_us_002: "en",
+        en_uk_001: "en",
+        en_uk_003: "en",
+        en_au_001: "en",
+        en_au_002: "en",
+        ne_np_001: "hi", // Hindi as fallback for Nepali
+        ne_np_002: "hi",
+      };
+
+      const lang = gTTSLangs[voice] || "en";
+      const slow = speed < 0.8;
+
+      console.log(
+        `🎤 Generating TTS audio: "${text.substring(
+          0,
+          50
+        )}..." (${lang}, slow: ${slow})`
+      );
+
+      // Use node-gtts library
+      const gtts = new gTTS(text, lang, slow);
+
+      // Save the audio file
+      await new Promise((resolve, reject) => {
+        gtts.save(outputPath, (err) => {
+          if (err) {
+            console.error("gTTS error:", err);
+            reject(err);
+          } else {
+            console.log(`✅ TTS audio saved to: ${outputPath}`);
+            resolve();
+          }
+        });
+      });
+    } catch (gTTSError) {
+      console.error("gTTS generation failed:", gTTSError);
+
+      // Fallback: Try using command line gTTS if available
+      try {
+        const lang = gTTSLangs[voice] || "en";
+        const speedParam = speed < 0.8 ? " --slow" : "";
+
+        await execAsync(
+          `gtts-cli --text "${text.replace(
+            /"/g,
+            '\\"'
+          )}" --lang ${lang}${speedParam} --output "${outputPath}" 2>/dev/null`
+        );
+
+        console.log("✅ TTS audio generated using gtts-cli");
+      } catch (cmdError) {
+        console.error("Command line gTTS also failed:", cmdError);
+        throw new Error("All gTTS methods failed");
+      }
     }
   }
 
