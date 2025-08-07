@@ -20,6 +20,10 @@ const audioGenerationSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    cloudinaryPublicId: {
+      type: String,
+      required: true,
+    },
     duration: {
       type: Number, // Duration in seconds
       default: 0,

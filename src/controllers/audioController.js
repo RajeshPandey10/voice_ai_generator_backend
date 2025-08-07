@@ -1,5 +1,5 @@
 import AudioGeneration from "../models/AudioGeneration.js";
-import audioService from "../services/audioService.js";
+import audioService from "../services/cloudinaryAudioService.js";
 import { validationResult } from "express-validator";
 import path from "path";
 
@@ -73,24 +73,25 @@ export const generateAudio = async (req, res) => {
       });
     }
 
-    // Generate audio
-    const audioResult = await audioService.generateAudio(
-      content,
+    // Generate audio using Cloudinary
+    const audioResult = await audioService.generateAudio(content, {
       language,
-      voice
-    );
+      voice,
+      style: "storytelling",
+    });
 
     // Save audio generation record
     const audioGeneration = new AudioGeneration({
       user: userId,
       content,
       language,
-      audioUrl: audioResult.url,
+      audioUrl: audioResult.audioUrl,
+      cloudinaryPublicId: audioResult.publicId,
       duration: audioResult.duration,
       voice,
       businessName,
       contentType,
-      fileSize: audioResult.fileSize,
+      fileSize: audioResult.metadata?.bytes || 0,
       metadata: audioResult.metadata,
     });
 
@@ -105,11 +106,12 @@ export const generateAudio = async (req, res) => {
       success: true,
       audio: {
         id: audioGeneration._id,
-        url: audioResult.url,
+        url: audioResult.audioUrl,
         duration: audioResult.duration,
         language,
         voice,
-        fileSize: audioResult.fileSize,
+        publicId: audioResult.publicId,
+        fileSize: audioResult.metadata?.bytes || 0,
         metadata: audioResult.metadata,
       },
       usage: req.user
