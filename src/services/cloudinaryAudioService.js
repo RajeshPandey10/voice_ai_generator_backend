@@ -88,21 +88,33 @@ class AudioService {
 
       // Try to use cloud TTS first, fallback to placeholder
       let audioGenerated = false;
+      let generationMethod = "placeholder";
 
-      // Try Google Text-to-Speech API if available
       try {
-        await this.generateCloudTTS(cleanText, tempFilePath, voice, speed);
+        await this.generateWebTTS(cleanText, tempFilePath, voice, speed);
         audioGenerated = true;
-        console.log("✅ Generated audio using cloud TTS");
-      } catch (cloudError) {
+        generationMethod = "web_tts";
+        console.log("✅ Generated audio using web-based TTS");
+      } catch (webError) {
         console.log(
-          "Cloud TTS not available, using placeholder:",
-          cloudError.message
+          "Web-based TTS failed, trying system TTS:",
+          webError.message
         );
 
-        // Fallback to placeholder audio with proper duration
-        await this.createPlaceholderAudio(cleanText, tempFilePath);
-        audioGenerated = true;
+        try {
+          await this.generateSystemTTS(cleanText, tempFilePath, voice, speed);
+          audioGenerated = true;
+          generationMethod = "system_tts";
+          console.log("✅ Generated audio using system TTS");
+        } catch (systemError) {
+          console.log(
+            "System TTS failed, using placeholder:",
+            systemError.message
+          );
+          // Fallback to placeholder audio with proper duration
+          await this.createPlaceholderAudio(cleanText, tempFilePath);
+          audioGenerated = true; // Still true, but it's silent
+        }
       }
 
       if (!audioGenerated) {
@@ -112,11 +124,11 @@ class AudioService {
       // Upload to Cloudinary with proper audio settings
       const uploadResult = await cloudinary.uploader.upload(tempFilePath, {
         folder: "voice-ai-audio",
-        resource_type: "auto", // Let Cloudinary auto-detect
+        resource_type: "video", // Upload as video to get audio processing features
         public_id: `audio_${Date.now()}_${Math.random()
           .toString(36)
           .substring(2, 15)}`,
-        format: "mp3", // Convert to MP3 if needed
+        format: "mp3", // Ensure output is mp3
         audio_codec: "mp3",
         quality: "auto:good",
       });
@@ -141,7 +153,7 @@ class AudioService {
           estimatedWords: Math.floor(cleanText.length / 5),
           generatedAt: new Date().toISOString(),
           audioGenerated: audioGenerated,
-          method: audioGenerated ? "cloud_tts" : "placeholder",
+          method: generationMethod,
         },
       };
     } catch (error) {
