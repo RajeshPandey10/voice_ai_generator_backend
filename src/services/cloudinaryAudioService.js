@@ -97,8 +97,8 @@ class AudioService {
         )}..."`
       );
 
+      // Primary TTS: Web Google TTS, fallback to node-gtts only
       try {
-        // Primary method: Web-based Google TTS (most reliable for cloud)
         await this.generateWebGoogleTTS(cleanText, tempFilePath, voice, speed);
         audioGenerated = true;
         generationMethod = "web_google_tts_primary";
@@ -106,53 +106,15 @@ class AudioService {
           "✅ Audio generated successfully using Web Google TTS (Primary)."
         );
       } catch (primaryError) {
-        console.log("Primary Web Google TTS failed, trying node-gtts...");
-
+        console.log("Web Google TTS failed, falling back to node-gtts...");
         try {
-          // Fallback method: node-gtts
           await this.generateGoogleTTS(cleanText, tempFilePath, voice, speed);
           audioGenerated = true;
           generationMethod = "node_gtts_fallback";
           console.log("✅ Audio generated using node-gtts fallback.");
         } catch (fallbackError) {
-          console.log("node-gtts failed, trying Edge TTS...");
-
-          try {
-            // Try Edge TTS API
-            await this.generateEdgeTTSAPI(
-              cleanText,
-              tempFilePath,
-              voice,
-              speed
-            );
-            audioGenerated = true;
-            generationMethod = "edge_tts_api";
-            console.log("✅ Audio generated using Edge TTS API.");
-          } catch (edgeError) {
-            console.log("Edge TTS failed, trying speech synthesis API...");
-
-            try {
-              // Try browser-compatible speech synthesis
-              await this.generateSpeechSynthesisAPI(
-                cleanText,
-                tempFilePath,
-                voice,
-                speed
-              );
-              audioGenerated = true;
-              generationMethod = "speech_synthesis_api";
-              console.log("✅ Audio generated using Speech Synthesis API.");
-            } catch (speechError) {
-              console.log(
-                "All real TTS methods failed, this should not happen in production!"
-              );
-
-              // Only fall back to placeholder if absolutely necessary
-              throw new Error(
-                "All TTS methods failed - real speech generation not available"
-              );
-            }
-          }
+          console.error("node-gtts fallback failed:", fallbackError);
+          throw new Error(`Audio generation failed: ${fallbackError.message}`);
         }
       }
 
