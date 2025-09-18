@@ -1,45 +1,45 @@
-name: Keep Render Service Alive
+# name: Keep Render Service Alive
 
-on:
-  schedule:
-    # Run every 10 minutes from 6 AM to 11 PM UTC (adjust timezone as needed)
-    - cron: "*/10 6-23 * * *"
-    # Run every 30 minutes during off-peak hours
-    - cron: "*/30 0-5 * * *"
-  workflow_dispatch: # Allow manual trigger
+# on:
+#   schedule:
+#     # Run every 10 minutes from 6 AM to 11 PM UTC (adjust timezone as needed)
+#     - cron: "*/10 6-23 * * *"
+#     # Run every 30 minutes during off-peak hours
+#     - cron: "*/30 0-5 * * *"
+#   workflow_dispatch: # Allow manual trigger
 
-jobs:
-  ping-service:
-    runs-on: ubuntu-latest
+# jobs:
+#   ping-service:
+#     runs-on: ubuntu-latest
 
-    steps:
-      - name: Ping Render Service
-        run: |
-          echo "🔄 Pinging Render service..."
+#     steps:
+#       - name: Ping Render Service
+#         run: |
+#           echo "🔄 Pinging Render service..."
 
-          SERVICE_URL="https://voice-ai-generator-backend.onrender.com"
-          HEALTH_ENDPOINT="$SERVICE_URL/health"
+#           SERVICE_URL="https://voice-ai-generator-backend.onrender.com"
+#           HEALTH_ENDPOINT="$SERVICE_URL/health"
 
-          # Ping the health endpoint
-          response=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_ENDPOINT")
+#           # Ping the health endpoint
+#           response=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_ENDPOINT")
 
-          if [ "$response" = "200" ]; then
-            echo "✅ Service is alive! Response: $response"
-          else
-            echo "❌ Service might be sleeping. Response: $response"
-            echo "🔄 Attempting to wake up service..."
+#           if [ "$response" = "200" ]; then
+#             echo "✅ Service is alive! Response: $response"
+#           else
+#             echo "❌ Service might be sleeping. Response: $response"
+#             echo "🔄 Attempting to wake up service..."
             
-            # Try a few more times with delay
-            for i in {1..3}; do
-              sleep 10
-              response=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_ENDPOINT")
-              echo "   Attempt $i: Response $response"
-              if [ "$response" = "200" ]; then
-                echo "✅ Service is now awake!"
-                break
-              fi
-            done
-          fi
+#             # Try a few more times with delay
+#             for i in {1..3}; do
+#               sleep 10
+#               response=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_ENDPOINT")
+#               echo "   Attempt $i: Response $response"
+#               if [ "$response" = "200" ]; then
+#                 echo "✅ Service is now awake!"
+#                 break
+#               fi
+#             done
+#           fi
 
-          echo "📊 Timestamp: $(date)"
-          echo "🌐 Service URL: $SERVICE_URL"
+#           echo "📊 Timestamp: $(date)"
+#           echo "🌐 Service URL: $SERVICE_URL"
